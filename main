@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body {
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 250px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: transparent;
+  }
+  .app-container {
+    text-align: center;
+    background: #ffffff;
+    padding: 20px 30px;
+    border-radius: 16px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    border: 1px solid #e2e8f0;
+    width: 100%;
+    max-width: 300px;
+  }
+  .title {
+    margin: 0 0 10px 0;
+    font-size: 16px;
+    color: #475569;
+  }
+  .lux-display {
+    font-size: 48px;
+    font-weight: bold;
+    color: #0ea5e9;
+    line-height: 1;
+    margin-bottom: 5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .unit {
+    font-size: 14px;
+    color: #94a3b8;
+    margin-bottom: 20px;
+  }
+  button {
+    background: #0ea5e9;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    font-size: 16px;
+    font-weight: bold;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+    width: 100%;
+  }
+  button:hover { background: #0284c7; }
+  #msg {
+    color: #ef4444;
+    font-size: 12px;
+    margin-top: 10px;
+    min-height: 14px;
+  }
+  video, canvas { display: none; }
+</style>
+</head>
+<body>
+
+<div class="app-container">
+  <h3 class="title">📷 簡易カメラ照度計</h3>
+  <div class="lux-display" id="lux-val">---</div>
+  <div class="unit">LUX (ルクス)</div>
+  <button id="start-btn" onclick="startApp()">測定スタート</button>
+  <div id="msg"></div>
+</div>
+
+<!-- 裏で処理するための隠し要素 -->
+<video id="cam-video" autoplay playsinline muted></video>
+<canvas id="cam-canvas"></canvas>
+
+<script>
+  const video = document.getElementById('cam-video');
+  const canvas = document.getElementById('cam-canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const luxVal = document.getElementById('lux-val');
+  const msg = document.getElementById('msg');
+  const btn = document.getElementById('start-btn');
+  let isRunning = false;
+
+  async function startApp() {
+    if (isRunning) return;
+    msg.textContent = "カメラを準備中...";
+    
+    try {
+      // 背面カメラを要求
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }
+      });
+      
+      video.srcObject = stream;
+      video.onloadedmetadata = () => {
+        video.play();
+        isRunning = true;
+        btn.style.display = 'none'; // ボタンを隠す
+        msg.textContent = "";
+        analyzeFrame(); // 解析ループ開始
+      };
+    } catch (err) {
+      msg.textContent = "カメラへのアクセスが拒否されたか、利用できません。";
+      console.error(err);
+    }
+  }
+
+  function analyzeFrame() {
+    if (!isRunning) return;
+
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      // 処理を軽くするため32x32ピクセルに縮小して解析
+      canvas.width = 32;
+      canvas.height = 32;
+      ctx.drawImage(video, 0, 0, 32, 32);
+      
+      const imgData = ctx.getImageData(0, 0, 32, 32).data;
+      let totalLuminance = 0;
+      
+      for (let i = 0; i < imgData.length; i += 4) {
+        const r = imgData[i], g = imgData[i+1], b = imgData[i+2];
+        // 人間の目の感度に近い輝度計算（ITU-R BT.709）
+        totalLuminance += (0.2126 * r + 0.7152 * g + 0.0722 * b);
+      }
+      
+      // 平均輝度（0〜255）
+      const avgLuminance = totalLuminance / (imgData.length / 4);
+      
+      // 輝度をルクス（照度）の目安に変換する簡易的な計算式
+      let lux = Math.pow(avgLuminance / 255, 2.5) * 2000;
+      luxVal.textContent = Math.max(1, Math.round(lux));
+    }
+    
+    // 0.2秒ごとに更新（1秒間に約5回）
+    setTimeout(() => requestAnimationFrame(analyzeFrame), 200);
+  }
+</script>
+
+</body>
+</html>
